@@ -130,4 +130,7 @@ dmypy.json
 .pyre/
 
 # private files
-session
+/session
+/elect.py
+
+.pdm.toml

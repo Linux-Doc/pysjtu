@@ -1,35 +1,31 @@
 import time
-from enum import IntEnum
-from typing import Callable, Generic, List, Tuple, Type, TypeVar, Union
+from abc import ABC
+from typing import Callable, Generic, List, Tuple, Type, TypeVar, Union, ClassVar
 
 from marshmallow import Schema  # type: ignore
 
 from pysjtu.utils import overlap, parse_slice, range_in_set
 
 
-class Gender(IntEnum):
-    male = 1
-    female = 2
+class _PARTIAL:
+    pass
 
 
 class Result:
-    """ Base class for Result """
+    """ Base class for Result. All item models inherit from this class. """
+    Schema: ClassVar[Type[Schema]] = Schema
 
     def __repr__(self):
         raise NotImplementedError  # pragma: no cover
 
 
-class PARTIAL:
-    pass
-
-
-class LazyResult(Result):
-    """ Base class for LazyResult """
+class LazyResult(Result, ABC):
+    """ Base class for LazyResult. All lazy item models inherit from this class. """
     _load_func: Callable = None
 
     def __getattribute__(self, item):
         value = super().__getattribute__(item)
-        if value == PARTIAL:
+        if value == _PARTIAL:
             update_dict = self._load_func()
             for k, v in update_dict.items():
                 super().__setattr__(k, v)
@@ -37,12 +33,15 @@ class LazyResult(Result):
         return value
 
 
-T_Result = TypeVar("T_Result", bound=Result)
+T_Item = TypeVar("T_Result", bound=Result)
 
 
-class QueryResult(Generic[T_Result]):
+class QueryResult(Generic[T_Item]):
     """
     A key accessible, sliceable, and iterable interface to query result collections.
+    All lazy container models inherit from this class.
+
+    See :ref:`Result Content` for more information.
 
     A QueryResult object is constructed with a raw data callable reference.
 
@@ -73,7 +72,7 @@ class QueryResult(Generic[T_Result]):
         self._cached_items = set()
         self._page_size = page_size
 
-    def __getitem__(self, arg: Union[int, slice]) -> T_Result:
+    def __getitem__(self, arg: Union[int, slice]) -> T_Item:
         if isinstance(arg, int):
             data = self._handle_result_by_index(arg)  # type: ignore
         elif isinstance(arg, slice):
@@ -157,22 +156,23 @@ class QueryResult(Generic[T_Result]):
             yield self[i]
 
 
-class Results(List[T_Result]):
+class Results(List[T_Item]):
     """
-    Base class for Results
+    Base class for Results. All eager container models inherit from this class.
 
-    :param year: year of the :class:`Results` object.
-    :param term: term of the :class:`Results` object.
+    See :ref:`Result Content` for more information.
+
+    :param year: year of the query.
+    :param term: term of the query.
     """
-    _schema: Type[Schema]
-    _result_model: Type[T_Result]
+    _item: Type[T_Item]
     _valid_fields: List[str]
 
     def __init__(self, year: int = 0, term: int = 0):
         super().__init__()
         self._year = year
         self._term = term
-        self._valid_fields = list(self._result_model.__annotations__.keys())
+        self._valid_fields = list(self._item.__annotations__.keys())
 
     @property
     def year(self) -> int:
@@ -187,15 +187,23 @@ class Results(List[T_Result]):
         Load a list of dicts into Results, and deserialize dicts to Result objects.
 
         :param data: a list of dicts.
+        :meta private:
         """
-        schema = self._schema(many=True)
+        schema = self._item.Schema(many=True)
         results = schema.load(data)
         for result in results:
             self.append(result)
 
-    def filter(self, **param) -> List[T_Result]:
+    def filter(self, **param) -> List[T_Item]:
         """
-        Get Result objects matching specific criteria.
+        Get Result objects matching specific criteria. The criteria are specified by keyword arguments.
+
+        Available fields are defined by child classes.
+
+        .. note::
+            There are three special time-related fields: `week`, `time` and `day`.
+
+            When filtering by them, the filter logic is `contains` instead of `equals`.
 
         :param param: query criteria
         :return: Result objects matching given criteria.

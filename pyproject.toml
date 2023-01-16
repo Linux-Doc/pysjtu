@@ -1,0 +1,61 @@
+[project]
+name = "pysjtu"
+dynamic = ["version"]
+description = "The Python iSJTU client for Humans."
+authors = [
+    { name = "LightQuantum", email = "self@lightquantum.me" },
+]
+dependencies = [
+    "marshmallow>=3.19.0",
+    "lxml>=4.9.2",
+    "httpx>=0.23.3",
+    "importlib-resources>=5.10.2; python_version < \"3.9\"",
+    "marshmallow-dataclass>=8.5.11",
+]
+requires-python = ">=3.8"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+classifiers = [
+    "Operating System :: OS Independent",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+[project.urls]
+homepage = "https://github.com/PhotonQuantum/pysjtu"
+repository = "https://github.com/PhotonQuantum/pysjtu"
+documentation = "https://pysjtu.readthedocs.io/en/latest"
+
+[project.optional-dependencies]
+docs = [
+    "Sphinx>=4.5.0",
+    "sphinx-book-theme>=0.4.0-rc1",
+]
+tests = [
+    "pytest>=7.2.1",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "Flask>=2.2.2",
+    "flake8>=5.0.4",
+    "respx>=0.20.1",
+]
+ocr = [
+    "onnxruntime>=1.13.1",
+    "numpy>=1.24.1",
+    "Pillow>=9.4.0",
+]
+
+[tool.pdm]
+version = { source = "file", path = "pysjtu/__init__.py" }
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "loguru>=0.6.0",
+    "setuptools>=65.7.0",
+]
+
+[build-system]
+requires = ["pdm-pep517>=1.0"]
+build-backend = "pdm.pep517.api"

@@ -2,16 +2,17 @@ import datetime
 import json
 from os import path
 
-from marshmallow import ValidationError
 import pytest
+from marshmallow import ValidationError
 
-from pysjtu.models import CourseRange, LogicEnum, Ranking
-from pysjtu.models.selection import Gender, LessonTime
-from pysjtu.schemas import ExamSchema, GPAQueryParamsSchema, GPASchema, LibCourseSchema, ScheduleCourseSchema, \
-    ScoreFactorSchema, ScoreSchema, SelectionClassSchema, SelectionCourseSchema, SelectionSectorSchema, \
-    SelectionSharedInfoSchema
-from pysjtu.schemas.base import StrBool
-from pysjtu.schemas.schedule import CreditHourDetail
+from pysjtu.fields import StrBool
+from pysjtu.models import CourseRange, LogicEnum, Ranking, GPAQueryParams, GPA, LibCourse, Exam, ScoreFactor, Score, \
+    _PARTIAL
+from pysjtu.models.common import Gender
+from pysjtu.models.gpa import DedupMethod
+from pysjtu.models.schedule import _CreditHourDetail, ScheduleCourse
+from pysjtu.models.selection import LessonTime, SelectionClassLazySchema, SelectionClass, SelectionSector, \
+    SelectionSharedInfo
 
 
 @pytest.fixture()
@@ -27,10 +28,11 @@ def resp_loader():
 
 def test_selection_course_schema(resp_loader):
     raw_resp = resp_loader("selection_course")
-    schema = SelectionCourseSchema()
+    schema = SelectionClass.Schema()
     course = schema.load(raw_resp)
+    course_dict = {k: v for k, v in course.__dict__.items() if v is not _PARTIAL and v is not None}
 
-    assert course == {
+    assert course_dict == {
         "name": "问题求解与实践",
         "credit": 3.0,
         "course_id": "CS241",
@@ -43,7 +45,7 @@ def test_selection_course_schema(resp_loader):
 
 def test_selection_class_schema(resp_loader):
     raw_resp = resp_loader("selection_class")
-    schema = SelectionClassSchema()
+    schema = SelectionClassLazySchema()
     _class = schema.load(raw_resp)
 
     assert _class == {
@@ -68,7 +70,7 @@ def test_selection_class_schema(resp_loader):
 
 def test_selection_sector_schema(resp_loader):
     raw_resp = resp_loader("selection_sector")
-    schema = SelectionSectorSchema()
+    schema = SelectionSector.Schema()
     sector = schema.load(raw_resp)
 
     assert sector.task_type == 1
@@ -91,7 +93,7 @@ def test_selection_sector_schema(resp_loader):
 
 def test_selection_shared_info_schema(resp_loader):
     raw_resp = resp_loader("selection_shared_info")
-    schema = SelectionSharedInfoSchema()
+    schema = SelectionSharedInfo.Schema()
     shared_info = schema.load(raw_resp)
 
     assert shared_info.term == "02"
@@ -111,7 +113,7 @@ def test_selection_shared_info_schema(resp_loader):
 
 
 def test_schedule_credit_hour_detail_field():
-    field = CreditHourDetail()
+    field = _CreditHourDetail()
     assert field.deserialize("task_1:3.0,task_2:0.5") == {"task_1": 3.0, "task_2": 0.5}
     assert field.deserialize("-") == {"N/A": 0}
 
@@ -128,9 +130,9 @@ def test_str_bool_field():
         field.serialize("test", {"test": -1})
 
 
-def test_schedule_course_schema(resp_loader):
-    raw_resp = resp_loader("schedule_course")
-    schema = ScheduleCourseSchema()
+def test_schedule_course_schema_1(resp_loader):
+    raw_resp = resp_loader("schedule_course_1")
+    schema = ScheduleCourse.Schema()
     schedule_course = schema.load(raw_resp)
 
     assert schedule_course.name == "军事理论"
@@ -148,13 +150,37 @@ def test_schedule_course_schema(resp_loader):
     assert schedule_course.class_id == "90BEF7AA5D657072E0530200A8C06959"
     assert schedule_course.hour_total == 16 and isinstance(schedule_course.hour_total, int)
     assert schedule_course.hour_remark == {"理论": 24, "其他": 24}
-    assert schedule_course.hour_week == 1 and isinstance(schedule_course.hour_week, int)
+    assert schedule_course.hour_week == 1 and isinstance(schedule_course.hour_week, float)
+    assert schedule_course.field == "无方向"
+
+
+def test_schedule_course_schema_2(resp_loader):
+    raw_resp = resp_loader("schedule_course_2")
+    schema = ScheduleCourse.Schema()
+    schedule_course = schema.load(raw_resp)
+
+    assert schedule_course.name == "形势与政策"
+    assert schedule_course.day == 3 and isinstance(schedule_course.day, int)
+    assert schedule_course.week == [5, 9, range(13, 16, 2)]
+    assert schedule_course.time == range(9, 11)
+    assert schedule_course.location == "中院411"
+    assert schedule_course.credit == 0.5 and isinstance(schedule_course.credit, float)
+    assert schedule_course.assessment == "考试"
+    assert schedule_course.remark == "腾讯会议号：000000000，密码：0000"
+    assert schedule_course.teacher_name == ["吴晓玲"]
+    assert schedule_course.teacher_title == ["助理研究员(高教管理)"]
+    assert schedule_course.course_id == "MARX1205"
+    assert schedule_course.class_name == "(2022-2023-1)-MARX1205-42"
+    assert schedule_course.class_id == "E59F21516125D00CE055F8163EE1DCCC"
+    assert schedule_course.hour_total == 8 and isinstance(schedule_course.hour_total, int)
+    assert schedule_course.hour_remark == {"理论": 8.0}
+    assert schedule_course.hour_week == 0.5 and isinstance(schedule_course.hour_week, float)
     assert schedule_course.field == "无方向"
 
 
 def test_score_factor_schema(resp_loader):
     raw_resp = resp_loader("score_factor")
-    schema = ScoreFactorSchema(many=True)
+    schema = ScoreFactor.Schema(many=True)
     score_factors = schema.load(raw_resp)
 
     assert score_factors[0].name == "平时"
@@ -168,7 +194,7 @@ def test_score_factor_schema(resp_loader):
 
 def test_score_schema(resp_loader):
     raw_resp = resp_loader("score")
-    schema = ScoreSchema()
+    schema = Score.Schema()
     score = schema.load(raw_resp)
 
     assert score.name == "大学化学"
@@ -188,7 +214,7 @@ def test_score_schema(resp_loader):
 
 def test_exam_schema(resp_loader):
     raw_resp = resp_loader("exam")
-    schema = ExamSchema()
+    schema = Exam.Schema()
     exam = schema.load(raw_resp)
 
     assert exam.name == "2019-2020-1数学期中考"
@@ -206,28 +232,32 @@ def test_exam_schema(resp_loader):
 
 def test_gpa_query_params_schema_load(resp_loader):
     raw_resp = resp_loader("gpa_query_params")
-    schema = GPAQueryParamsSchema()
+    schema = GPAQueryParams.Schema()
     gpa_query_params = schema.load(raw_resp)
 
     assert gpa_query_params.gp_round == 9
     assert gpa_query_params.gpa_round == 9
-    assert gpa_query_params.exclude_gp == "缓考"
-    assert gpa_query_params.exclude_gpa == "缓考"
-    assert gpa_query_params.course_whole == ["TH020", "TH009"]
+    assert gpa_query_params.exclude_gp == ['缓考', '缓考(重考)', '尚未修读', '暂不记录', '中期退课', '重考报名']
+    assert gpa_query_params.exclude_gpa == ['缓考', '缓考(重考)', '尚未修读', '暂不记录', '中期退课', '重考报名']
+    assert gpa_query_params.excluded_courses == ""
+    assert gpa_query_params.excluded_course_groups == ""
+    assert gpa_query_params.included_course_groups == ""
+    assert gpa_query_params.dedup_method == DedupMethod.LAST_SCORE
+    assert gpa_query_params.course_whole == ['MARX1205', 'TH009', 'TH020']
     assert gpa_query_params.has_roll and isinstance(gpa_query_params.has_roll, bool)
     assert gpa_query_params.registered is None
-    assert gpa_query_params.attending and isinstance(gpa_query_params.attending, bool)
+    assert gpa_query_params.attending is None
 
 
 def test_gpa_query_params_schema_dump(resp_loader):
     raw_resp = resp_loader("gpa_query_params")
-    schema = GPAQueryParamsSchema()
+    schema = GPAQueryParams.Schema()
     gpa_query_params = schema.load(raw_resp)
 
     gpa_query_params.end_term = 2019
 
     gpa_query_params.condition_logic = 0
-    with pytest.raises(TypeError):
+    with pytest.raises(AttributeError):
         schema.dump(gpa_query_params)
     gpa_query_params.condition_logic = LogicEnum.AND
 
@@ -235,12 +265,12 @@ def test_gpa_query_params_schema_dump(resp_loader):
     gpa_query_params.rebuild_as_60 = True
 
     gpa_query_params.course_range = 0
-    with pytest.raises(TypeError):
+    with pytest.raises(AttributeError):
         schema.dump(gpa_query_params)
     gpa_query_params.course_range = CourseRange.ALL
 
     gpa_query_params.ranking = 0
-    with pytest.raises(TypeError):
+    with pytest.raises(AttributeError):
         schema.dump(gpa_query_params)
     gpa_query_params.ranking = Ranking.GRADE_AND_FIELD
 
@@ -250,14 +280,16 @@ def test_gpa_query_params_schema_dump(resp_loader):
 
     dump_dict = schema.dump(gpa_query_params)
 
-    assert dump_dict == {'zczt': 1, 'bjjd': '缓考', 'xjzt': 0, 'bjpjf': '缓考', 'qsXnxq': '', 'tjfw': 'njzy',
-                         'kch_ids': 'TH020,TH009', 'sspjfblws': 9, 'tjgx': 0, 'pjjdblws': 9, 'zzXnxq': 2019,
-                         'kcfw': 'qbkc', 'alsfj': 'bkcx'}
+    assert dump_dict == {'zczt': 1, 'xjzt': 0, 'qsXnxq': '', 'tjfw': 'njzy', 'sspjfblws': 9, 'tjgx': 0, 'pjjdblws': 9,
+                         'zzXnxq': 2019, 'kcfw': 'qbkc', 'alsfj': 'bkcx', 'bcjkc_id': '', 'bcjkz_id': '',
+                         'bjjd': '缓考,缓考(重考),尚未修读,暂不记录,中期退课,重考报名',
+                         'bjpjf': '缓考,缓考(重考),尚未修读,暂不记录,中期退课,重考报名', 'cjkz_id': '',
+                         'cjxzm': 'zhyccj', 'kch_ids': 'MARX1205,TH009,TH020', }
 
 
 def test_gpa_schema(resp_loader):
     raw_resp = resp_loader("gpa")
-    schema = GPASchema()
+    schema = GPA.Schema()
     gpa = schema.load(raw_resp)
 
     assert gpa.total_score == 999
@@ -275,7 +307,7 @@ def test_gpa_schema(resp_loader):
 
 
 def test_lib_course_schema_1(resp_loader):
-    schema = LibCourseSchema()
+    schema = LibCourse.Schema()
     raw_resp = resp_loader("lib_course_1")
     lib_course = schema.load(raw_resp)
 
@@ -300,7 +332,7 @@ def test_lib_course_schema_1(resp_loader):
 
 
 def test_lib_course_schema_2(resp_loader):
-    schema = LibCourseSchema()
+    schema = LibCourse.Schema()
     raw_resp = resp_loader("lib_course_2")
     lib_course = schema.load(raw_resp)
 

@@ -1,11 +1,7 @@
 from functools import partial
-from typing import Union
-
-from httpx.config import (TimeoutTypes, UNSET, UnsetType)
 
 from pysjtu import consts
 from pysjtu import models
-from pysjtu import schemas
 from pysjtu.client.base import BaseClient
 from pysjtu.utils import range_list_to_str, schema_post_loader
 
@@ -16,9 +12,11 @@ class CourseLibMixin(BaseClient):
 
     def query_courses(self, year: int, term: int, page_size: int = 15, name: str = None, teacher: str = None,
                       day_of_week: list = None, week: list = None, time_of_day: list = None,
-                      timeout: Union[TimeoutTypes, UnsetType] = UNSET) -> models.QueryResult[models.LibCourse]:
+                      **kwargs) -> models.QueryResult[models.LibCourse]:
         """
         Query courses matching given criteria from the whole course lib of SJTU.
+
+        See :meth:`pysjtu.session.Session.post` for more information about the keyword arguments.
 
         :param year: year in which target courses are given.
         :param term: term in which target courses are given.
@@ -28,8 +26,6 @@ class CourseLibMixin(BaseClient):
         :param day_of_week: (optional) Day of week of target courses.
         :param week: (optional) Week of target courses.
         :param time_of_day: (optional) Time of day of target courses.
-        :param timeout: (optional) How long to wait for the server to send data before giving up.
-        :return: A new :class:`QueryResult` object.
         """
         _args = {"year": "xnm", "term": "xqm", "name": "kch_id", "teacher": "jqh_id", "day_of_week": "xqj",
                  "week": "qsjsz", "time_of_day": "skjc"}
@@ -45,7 +41,7 @@ class CourseLibMixin(BaseClient):
             if k in dir():
                 req_params[v] = locals()[k]
 
-        req = partial(self._session.post, consts.COURSELIB_URL + str(self.student_id), timeout=timeout)
+        req = partial(self._session.post, consts.COURSELIB_URL + str(self.student_id), **kwargs)
 
-        return models.QueryResult(req, partial(schema_post_loader, schemas.LibCourseSchema), req_params,
+        return models.QueryResult(req, partial(schema_post_loader, models.LibCourse.Schema), req_params,
                                   page_size=page_size)

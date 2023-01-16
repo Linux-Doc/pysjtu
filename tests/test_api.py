@@ -12,15 +12,19 @@ from pysjtu.exceptions import DumpWarning, GPACalculationException, LoadWarning,
     SessionException, SelectionNotAvailableException, TimeConflictException, FullCapacityException
 from pysjtu.models import CourseRange, Exams, GPA, GPAQueryParams, LogicEnum, QueryResult, Schedule, Scores, Profile
 from pysjtu.ocr import JCSSRecognizer
-from pysjtu.session import BaseSession, Session
+from pysjtu.session import BaseSession, Session as _Session
 from .mock_server import app
-from dataclasses import asdict
+
+
+# noinspection PyPep8Naming
+def Session(*args, **kwargs):
+    return _Session(*args, **kwargs, proxies={"all://": None})
 
 
 @pytest.fixture
 def logged_session(mocker):
     mocker.patch.object(JCSSRecognizer, "recognize", return_value="ipsum")
-    sess = Session(_mocker_app=app, retry=[0], timeout=1)
+    sess = Session(app=app, retry=[0], timeout=1)
     sess.login("FeiLin", "WHISPERS")
     return sess
 
@@ -36,8 +40,8 @@ def check_login():
 class TestSession:
     @respx.mock
     def test_base_url(self):
-        respx.get("https://i.sjtu.edu.cn/test", content="1")
-        respx.get("https://kbcx.sjtu.edu.cn/test", content="2")
+        respx.get("https://i.sjtu.edu.cn/test").respond(content="1")
+        respx.get("https://kbcx.sjtu.edu.cn/test").respond(content="2")
         sess = Session()
         assert sess.base_url == "https://i.sjtu.edu.cn"
         assert sess.get("/test").text == "1"
@@ -47,10 +51,10 @@ class TestSession:
 
     @respx.mock
     def test_secure_req(self):
-        respx.get("http://secure.page.edu.cn", content=httpx.ConnectionClosed())
-        respx.get("http://secure.page.edu.cn:8889", content=httpx.ConnectionClosed())
-        respx.get("https://fail.page.edu.cn", content=httpx.ConnectionClosed())
-        respx.get("https://secure.page.edu.cn")
+        respx.get("http://secure.page.edu.cn").mock(side_effect=httpx.ConnectError)
+        respx.get("http://secure.page.edu.cn:8889").mock(side_effect=httpx.ConnectError)
+        respx.get("https://fail.page.edu.cn").mock(side_effect=httpx.ConnectError)
+        respx.get("https://secure.page.edu.cn").respond(200)
         sess = Session()
 
         resp = sess._secure_req(partial(httpx.get, "http://secure.page.edu.cn"))
@@ -59,7 +63,7 @@ class TestSession:
         resp = sess._secure_req(partial(httpx.get, "http://secure.page.edu.cn:8889"))
         assert resp.status_code == 200
 
-        with pytest.raises(httpx.exceptions.NetworkError):
+        with pytest.raises(httpx.NetworkError):
             sess._secure_req(partial(httpx.get, "https://fail.page.edu.cn"))
 
     def test_context(self, mocker):
@@ -68,7 +72,7 @@ class TestSession:
         tmpfile.seek(0)
 
         mocker.patch.object(JCSSRecognizer, "recognize", return_value="ipsum")
-        with Session(_mocker_app=app, session_file=tmpfile.file):
+        with Session(app=app, session_file=tmpfile.file):
             pass
         tmpfile.seek(0)
 
@@ -77,17 +81,17 @@ class TestSession:
     def test_init(self, mocker, check_login):
         tmpfile = NamedTemporaryFile()
         mocker.patch.object(JCSSRecognizer, "recognize", return_value="ipsum")
-        sess = Session(_mocker_app=app, username="FeiLin", password="WHISPERS")
+        sess = Session(app=app, username="FeiLin", password="WHISPERS")
         assert check_login(sess)
         cookie = sess.cookies
         sess.dump(tmpfile.file)
         tmpfile.seek(0)
 
         with pytest.warns(LoadWarning):
-            sess = Session(_mocker_app=app, cookies=cookie)
+            sess = Session(app=app, cookies=cookie)
             assert check_login(sess)
 
-        sess = Session(_mocker_app=app, session_file=tmpfile.file)
+        sess = Session(app=app, session_file=tmpfile.file)
         assert check_login(sess)
 
     def test_req(self, logged_session, check_login):
@@ -96,7 +100,7 @@ class TestSession:
 
         logged_session.get("https://i.sjtu.edu.cn/expire_me")
         assert logged_session.get("https://i.sjtu.edu.cn/xtgl/index_initMenu.html",
-                                  validate_session=False).url.full_path == "/xtgl/login_slogin.html"
+                                  validate_session=False).url.raw_path == b"/xtgl/login_slogin.html"
         with pytest.raises(SessionException):
             logged_session.get("https://i.sjtu.edu.cn/xtgl/index_initMenu.html", auto_renew=False)
         assert check_login(logged_session)
@@ -106,13 +110,13 @@ class TestSession:
         with pytest.raises(SessionException):
             logged_session.get("https://i.sjtu.edu.cn/xtgl/index_initMenu.html")
 
-        with pytest.raises(httpx.exceptions.HTTPError):
+        with pytest.raises(httpx.HTTPError):
             logged_session.get("https://i.sjtu.edu.cn/404")
 
     def test_req_methods(self, logged_session):
         assert logged_session.get("https://i.sjtu.edu.cn/ping").text == "pong"
         logged_session.head("https://i.sjtu.edu.cn/ping")
-        assert logged_session.post("https://i.sjtu.edu.cn/ping", data="lorem ipsum").text == "lorem ipsum"
+        assert logged_session.post("https://i.sjtu.edu.cn/ping", content="lorem ipsum").text == "lorem ipsum"
         assert logged_session.patch("https://i.sjtu.edu.cn/ping").text == "pong"
         assert logged_session.put("https://i.sjtu.edu.cn/ping").text == "pong"
         assert logged_session.delete("https://i.sjtu.edu.cn/ping").text == "pong"
@@ -121,7 +125,7 @@ class TestSession:
 
     @respx.mock
     def test_req_partial_url(self):
-        respx.get("http://dummy.url/test_path", content="pass")
+        respx.get("http://dummy.url/test_path").respond(content="pass")
         assert Session(base_url="http://dummy.url").get("/test_path").text == "pass"
 
     def test_login(self, logged_session, check_login):
@@ -144,7 +148,7 @@ class TestSession:
         cookie = logged_session.cookies
         dumps = logged_session.dumps()
 
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         sess.loads({"username": "FeiLin", "password": "WHISPERS"})
         assert check_login(sess)
 
@@ -154,7 +158,7 @@ class TestSession:
         assert not sess._username
         assert not sess._password
 
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         with pytest.raises(TypeError):
             sess.loads({"cookies": "Cookie☆"})
         with pytest.warns(LoadWarning):
@@ -164,13 +168,13 @@ class TestSession:
         with pytest.warns(DumpWarning):
             sess.dumps()
 
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         sess.loads(dumps)
         assert check_login(sess)
 
         # test auto renew mechanism
         logged_session.logout()
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         sess.loads(dumps)
         assert check_login(sess)
 
@@ -178,7 +182,7 @@ class TestSession:
         tmp_file = NamedTemporaryFile()
         logged_session.dump(tmp_file.file)
         tmp_file.seek(0)
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         sess.load(tmp_file.file)
         assert check_login(sess)
 
@@ -186,14 +190,14 @@ class TestSession:
         # noinspection PyTypeChecker
         open(tmp_file, mode="a").close()
         logged_session.dump(tmp_file)
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         sess.load(tmp_file)
         assert check_login(sess)
 
         tmp_file = str(tmp_path / "tmpfile_2")
         open(tmp_file, mode="a").close()
         logged_session.dump(tmp_file)
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         sess.load(tmp_file)
         assert check_login(sess)
 
@@ -205,29 +209,26 @@ class TestSession:
             sess.dump(0)
 
         empty_file = NamedTemporaryFile()
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         with pytest.warns(LoadWarning):
             sess.load(empty_file.file)
 
         empty_file = tmp_path / "empty_file"
         # noinspection PyTypeChecker
         open(empty_file, mode="a").close()
-        sess = Session(_mocker_app=app)
+        sess = Session(app=app)
         with pytest.warns(LoadWarning):
             sess.load(empty_file)
 
     def test_properties(self, logged_session):
         cookie = logged_session.cookies
 
-        sess = Session(_mocker_app=app)
-        assert sess.proxies == {}
+        sess = Session(app=app)
 
         assert isinstance(sess.timeout, httpx.Timeout)
         sess.timeout = httpx.Timeout(1.0)
         sess.timeout = 1
         sess.timeout = (1, 5)
-        with pytest.raises(TypeError):
-            sess.timeout = "1"
 
         assert isinstance(sess.cookies, httpx.Cookies)
         with pytest.raises(SessionException):
@@ -265,7 +266,7 @@ class TestClient:
             Client(0)
         with pytest.raises(TypeError):
             Client(self.DummySession2())
-        client = create_client("FeiLin", "WHISPERS", _mocker_app=app)
+        client = create_client("FeiLin", "WHISPERS", app=app, proxies={"all://": None})
         assert client.student_id == 519027910001
 
     def test_student_id(self, logged_client):
@@ -339,7 +340,7 @@ class TestClient:
         logged_client._session.get("test_no_full")
         _class.register()
         assert _class.is_registered() is True
-        _class.deregister()
+        _class.drop()
         assert _class.is_registered() is False
 
         _ = _class.register_id

@@ -24,16 +24,14 @@ lesson_time = (((8, 0), (8, 45)),
 try:
     sess_file = open("session", mode="r+b")
 except FileNotFoundError:
-    sess_file = None    # type: ignore
+    sess_file = None  # type: ignore
 
 client = create_client(os.environ["SJTU_USER"], os.environ["SJTU_PASS"])
 
 with Session(session_file=sess_file, ocr=JCSSRecognizer()) if sess_file else Session(username=os.environ["SJTU_USER"],
-                                                               password=os.environ["SJTU_PASS"], ocr=JCSSRecognizer()) as sess:
+                                                                                     password=os.environ["SJTU_PASS"],
+                                                                                     ocr=JCSSRecognizer()) as sess:
     client = Client(session=sess)
-
-    sectors = client.course_selection_sectors
-    classes = sectors[0].classes
 
     print(client.student_id)
     schedule = client.schedule(2019, 1)
@@ -72,10 +70,10 @@ with Session(session_file=sess_file, ocr=JCSSRecognizer()) if sess_file else Ses
     print(client.term_start_date)
     query_params = client.default_gpa_query_params
 
-    print(client.gpa(query_params, 10))
+    print(client.gpa(query_params, timeout=30))
 
     query_params.course_range = CourseRange.ALL
-    print(client.gpa(query_params, 10))
+    print(client.gpa(query_params, timeout=30))
 
     if not sess_file:
         sess.dump(open("session", mode="wb"))
